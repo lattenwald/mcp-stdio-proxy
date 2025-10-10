@@ -1,0 +1,248 @@
+# Agent Context: mcp-stdio-proxy
+
+> This file provides context for AI assistants (Claude, Gemini, Grok, etc.) collaborating on this project.
+
+## Project Overview
+
+**mcp-stdio-proxy** is a minimal Go-based proxy that bridges stdio transport to Streamable HTTP for the Model Context Protocol (MCP).
+
+### Problem Being Solved
+Existing Python mcp-proxy (v0.9.0) has protocol incompatibilities with mcp-hub (v4.2.1), causing intermittent OAuth failures. Need a clean, minimal implementation that works reliably.
+
+### Architecture
+```
+Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backend MCP Servers
+                                                                      (Atlassian, GitLab, Zen)
+```
+
+## Project Status
+
+**Current Phase**: Testing and validation
+
+### Completed
+- [x] Project structure created
+- [x] Go module initialized
+- [x] README.md written
+- [x] docs/PRD.md completed
+- [x] AGENTS.md created
+- [x] docs/PROGRESS.md created for tracking
+- [x] main.go implemented (~310 lines)
+- [x] CLI argument parsing and validation
+- [x] Proxy struct and initialization
+- [x] Stdin message reader (newline-delimited JSON-RPC)
+- [x] HTTP request builder with proper headers
+- [x] Session ID management (Mcp-Session-Id header)
+- [x] JSON and SSE response handlers
+- [x] HTTP error to JSON-RPC conversion
+- [x] Exponential backoff retry logic (3 attempts)
+- [x] Debug logging support (--debug, -v, --verbose flags + DEBUG=1)
+- [x] Binary built successfully (8.4 MB)
+- [x] Updated README with usage examples and options
+- [x] Updated PROGRESS.md with technical decisions
+
+### Next Steps
+- [x] Test with local mcp-hub instance (discovered protocol incompatibility)
+- [x] Validate initialization sequence (works with standard Streamable HTTP)
+- [x] Verify session ID persistence (works with standard Streamable HTTP)
+- [x] Test error handling scenarios (all passing)
+- [x] Analyze mcp-hub source code
+- [ ] Implement Phase 4: mcp-hub mode support
+- [ ] Add `--mcp-hub-mode` flag
+- [ ] Test with mcp-hub using new mode
+
+## Technical Decisions
+
+### Language: Go
+**Rationale**:
+- Fast development (2-4 hours vs 4-6 for Rust)
+- Excellent stdlib HTTP/SSE support
+- Simple concurrency model
+- User comfortable with Go
+
+### Scope: Minimal
+**Philosophy**: Do one thing well
+- No configuration files (URL as CLI arg)
+- No multi-server aggregation (mcp-hub handles this)
+- No OAuth (downstream server's responsibility)
+- ~200-300 lines of code
+
+### Protocol: MCP 2025-03-26 Streamable HTTP
+**Key Requirements**:
+- Mcp-Session-Id header management
+- SSE response parsing
+- Newline-delimited JSON-RPC on stdio
+- HTTP POST for all messages
+
+## Code Guidelines
+
+### Go Idioms
+- Use `bufio.Scanner` for stdin reading
+- Use `net/http` client with connection pooling
+- Handle errors explicitly, no panic except in main
+- Log to stderr only (stdout reserved for JSON-RPC)
+
+### Error Handling
+- Connection errors: Retry with exponential backoff
+- Malformed messages: Skip, log to stderr
+- HTTP errors: Convert to JSON-RPC error responses
+- Always preserve JSON-RPC message ID for responses
+
+### Testing Strategy
+- Manual testing with mcp-hub on localhost:37373
+- Test cases: initialization, multi-message session, errors
+- Validate session ID persistence
+
+## Environment Context
+
+### User Setup
+- **OS**: Linux (6.17.0-5-generic)
+- **Go**: 1.24.4 (managed via asdf)
+- **mcp-hub**: v4.2.1 running on localhost:37373
+- **Backend servers**: Atlassian, GitLab, Zen (all connected)
+
+### Development Workflow
+- Project location: `~/projects/go/mcp-stdio-proxy/`
+- Build: `go build -o mcp-stdio-proxy`
+- Test: `echo '{"jsonrpc":"2.0",...}' | ./mcp-stdio-proxy http://localhost:37373/mcp`
+
+## Collaboration Notes
+
+### For Claude
+- Focus on clean, maintainable code
+- Reference PRD.md for detailed requirements
+- Ask before adding complexity beyond PRD scope
+
+### For Gemini
+- Prioritize Go best practices and idioms
+- Consider performance but don't over-optimize
+- Validate protocol compliance with MCP spec
+
+### For Grok
+- Architectural review and edge case analysis
+- Performance profiling if needed
+- Security considerations
+
+## Key Files
+
+- **README.md**: User-facing documentation
+- **docs/PRD.md**: Complete requirements and implementation plan (includes Phase 4)
+- **docs/PROGRESS.md**: Implementation progress tracking
+- **docs/MCP-HUB-QUIRKS.md**: mcp-hub protocol analysis and compatibility plan
+- **main.go**: Core proxy implementation (~320 lines)
+- **go.mod**: Go module definition
+- **mcp-stdio-proxy**: Compiled binary (8.4 MB)
+
+## References
+
+- [MCP 2025-03-26 Spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports)
+- [mcp-hub Repository](https://github.com/ravitemer/mcp-hub)
+- PRD.md for detailed technical requirements
+
+## Communication Protocol
+
+When working on this project:
+1. Check AGENTS.md for current status
+2. Update status sections after completing work
+3. Document decisions and rationale
+4. Cross-reference PRD.md for requirements
+5. Keep README.md user-focused, AGENTS.md AI-focused
+
+## Commit Guidelines
+
+**Format**: Concise, high-level commits
+- **One line** if possible
+- **Bullet list** with bird's-eye view points if needed
+- **No details** - those belong in code and documentation
+- Focus on **what changed**, not **how** or **why**
+
+**Good Examples**:
+```
+Add mcp-stdio-proxy with debug flags and mcp-hub analysis
+```
+
+```
+Implement stdio to HTTP proxy
+- Add CLI flags for debug logging
+- Document mcp-hub compatibility issues
+```
+
+**Bad Examples**:
+```
+Add mcp-stdio-proxy implementation with mcp-hub analysis
+
+## Implementation Complete (Phase 1-3)
+
+Core Features:
+- stdio to Streamable HTTP proxy (MCP 2025-03-26 spec)
+... [detailed feature list]
+```
+(Too detailed - this belongs in documentation)
+
+---
+
+**Last Updated**: 2025-10-10
+**Current Focus**: Planning mcp-hub compatibility mode
+
+## mcp-hub Compatibility Analysis (2025-10-10)
+
+### Discovery
+Tested proxy with mcp-hub v4.2.1 and discovered it **does not implement standard MCP Streamable HTTP**. Instead uses custom two-endpoint SSE pattern.
+
+### Protocol Differences
+| Aspect | MCP Spec | mcp-hub v4.2.1 |
+|--------|----------|----------------|
+| Endpoints | Single POST | GET /mcp + POST /messages |
+| Session ID | HTTP header | Query parameter |
+| Responses | POST response (JSON/SSE) | Always SSE stream |
+| Transport | Unified | Split (GET for responses, POST for requests) |
+
+### Documentation
+- **Technical Analysis**: `docs/MCP-HUB-QUIRKS.md`
+- **Implementation Plan**: `docs/PRD.md` Phase 4
+- **Source Analysis**: Examined `~/git/mcp-hub/src/`
+
+### Status
+- ✅ Current proxy: Works with MCP spec-compliant servers
+- ⏳ mcp-hub support: Planned for Phase 4 implementation
+- 📋 Estimated effort: 4-6 hours for mcp-hub mode
+
+## Implementation Summary
+
+### Code Structure
+**main.go** contains:
+- `Proxy` struct: Core proxy state (URL, session ID, HTTP client, I/O)
+- `JSONRPCMessage` struct: JSON-RPC 2.0 message representation
+- `Run()`: Main event loop reading from stdin
+- `forwardMessage()`: Retry logic wrapper
+- `sendHTTPRequest()`: HTTP POST with session management
+- `handleJSONResponse()`: Parse and write JSON responses
+- `handleSSEResponse()`: Parse SSE streams
+- `writeSSEData()`: Validate and write SSE data to stdout
+- `sendErrorResponse()`: Convert errors to JSON-RPC format
+
+### Key Features Implemented
+1. **Protocol Compliance**: Full MCP 2025-03-26 Streamable HTTP support
+2. **Session Persistence**: Automatic Mcp-Session-Id header management
+3. **Dual Response Handling**: Both JSON and SSE (text/event-stream) responses
+4. **Resilience**: 3-attempt exponential backoff (100ms, 200ms, 400ms)
+5. **Debug Mode**: Multiple options (--debug, -v, --verbose, DEBUG=1)
+6. **Error Handling**: Malformed messages skipped, HTTP errors converted to JSON-RPC
+7. **CLI Interface**: Standard flag package, comprehensive help message
+8. **Zero Dependencies**: Pure Go stdlib implementation
+
+### CLI Usage
+```bash
+# Basic usage
+./mcp-stdio-proxy http://localhost:37373/mcp
+
+# With debug logging
+./mcp-stdio-proxy --debug http://localhost:37373/mcp
+./mcp-stdio-proxy -v http://localhost:37373/mcp
+
+# Get help
+./mcp-stdio-proxy --help
+```
+
+### Testing Ready
+Binary location: `./mcp-stdio-proxy`
+Test command: `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./mcp-stdio-proxy http://localhost:37373/mcp`
