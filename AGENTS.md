@@ -46,9 +46,11 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 - [x] Verify session ID persistence (works with standard Streamable HTTP)
 - [x] Test error handling scenarios (all passing)
 - [x] Analyze mcp-hub source code
-- [ ] Implement Phase 4: mcp-hub mode support
-- [ ] Add `--mcp-hub-mode` flag
-- [ ] Test with mcp-hub using new mode
+- [x] Discovered PR #128 adds standard Streamable HTTP to mcp-hub
+- [ ] ~~Implement Phase 4: mcp-hub mode support~~ **CANCELLED** (PR #128 makes it obsolete)
+- [ ] Monitor PR #128 merge status
+- [ ] Test with mcp-hub after PR #128 merge
+- [ ] Update documentation after official release
 
 ## Technical Decisions
 
@@ -147,7 +149,17 @@ When working on this project:
 4. Cross-reference PRD.md for requirements
 5. Keep README.md user-focused, AGENTS.md AI-focused
 
-## Commit Guidelines
+## Git Workflow Guidelines
+
+### Commit Policy
+**⚠️ IMPORTANT: Only commit when explicitly requested by the user**
+
+- **NEVER** run `git add` or `git commit` automatically
+- **ALWAYS** ask user before committing changes
+- **ALWAYS** show what will be committed (`git status`) before asking
+- User must explicitly request: "commit this" or "commit these changes"
+
+### Commit Message Format
 
 **Format**: Concise, high-level commits
 - **One line** if possible
@@ -178,12 +190,35 @@ Core Features:
 ```
 (Too detailed - this belongs in documentation)
 
+### Pre-Commit Checklist
+
+Before asking user to commit:
+1. Run `git status` to see what changed
+2. Ensure all changes are intentional
+3. Verify no sensitive data or temporary files
+4. Present concise commit message for approval
+5. Wait for explicit user confirmation
+
 ---
 
 **Last Updated**: 2025-10-10
-**Current Focus**: Planning mcp-hub compatibility mode
+**Current Focus**: Monitoring mcp-hub PR #128 for standard protocol support
 
 ## mcp-hub Compatibility Analysis (2025-10-10)
+
+### UPDATE: PR #128 Solves Compatibility Issue! 🎉
+
+**Discovery**: Pull request [#128](https://github.com/ravitemer/mcp-hub/pull/128) adds full MCP 2025-03-26 Streamable HTTP support to mcp-hub!
+
+**Impact**:
+- ✅ Our proxy will work with mcp-hub **with NO code changes**
+- ✅ Phase 4 implementation **CANCELLED** (saves 4-6 hours)
+- ✅ Standard protocol compliance validated
+- ⏳ Waiting on PR merge to production release
+
+**See**: [docs/MCP-HUB-QUIRKS.md](docs/MCP-HUB-QUIRKS.md) UPDATE section for full analysis
+
+## mcp-hub Compatibility Analysis (Original Discovery - 2025-10-10)
 
 ### Discovery
 Tested proxy with mcp-hub v4.2.1 and discovered it **does not implement standard MCP Streamable HTTP**. Instead uses custom two-endpoint SSE pattern.

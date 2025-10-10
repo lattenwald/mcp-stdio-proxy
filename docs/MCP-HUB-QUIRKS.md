@@ -286,3 +286,249 @@ This suggests the SDK itself may support this split-endpoint pattern, which coul
 - The split-endpoint pattern may be intentional for their use case (managing multiple servers)
 - The `@modelcontextprotocol/sdk` supports this, suggesting it's a known pattern
 - Future MCP spec versions may formalize this as an alternative transport
+
+---
+
+## UPDATE: 2025-10-10 - PR #128 Adds Standard Streamable HTTP Support! 🎉
+
+### Discovery
+Pull request [#128](https://github.com/ravitemer/mcp-hub/pull/128) by @bcdonadio adds **full MCP 2025-03-26 Streamable HTTP support** to mcp-hub!
+
+### What Changed
+
+**PR Title**: "(feat) Add stream-http support"
+
+**Key Changes**:
+1. **Upgraded MCP SDK**: `v1.15.1` → `v1.20.0`
+   - Added `StreamableHTTPServerTransport` class
+   - Full standard MCP Streamable HTTP protocol support
+
+2. **Unified `/mcp` endpoint** supporting both protocols:
+   ```javascript
+   // POST /mcp → Streamable HTTP (NEW - standard MCP spec)
+   app.post("/mcp", async (req, res) => {
+     await mcpServerEndpoint.handleStreamableHTTP(req, res);
+   });
+
+   // GET /mcp → Auto-detect protocol
+   app.get("/mcp", async (req, res) => {
+     const sessionId = req.headers['mcp-session-id'];
+     const acceptsSSE = req.headers.accept?.includes('text/event-stream');
+
+     if (sessionId || !acceptsSSE) {
+       // Streamable HTTP GET (standard)
+       await mcpServerEndpoint.handleStreamableHTTP(req, res);
+     } else {
+       // Legacy SSE transport (backward compatible)
+       await mcpServerEndpoint.handleSSEConnection(req, res);
+     }
+   });
+
+   // POST /messages → Legacy SSE (backward compatible)
+   app.post("/messages", async (req, res) => {
+     await mcpServerEndpoint.handleMCPMessage(req, res);
+   });
+   ```
+
+3. **New handler**: `MCPServerEndpoint.handleStreamableHTTP()` (src/mcp/server.js:552-637)
+   - Creates `StreamableHTTPServerTransport` instances
+   - Manages session IDs via `Mcp-Session-Id` header (not query params!)
+   - Handles both POST and GET requests on unified endpoint
+   - Reuses transports for existing sessions
+
+4. **Smart protocol detection**:
+   - Checks `Mcp-Session-Id` header
+   - Checks `Accept: text/event-stream` header
+   - Routes to appropriate handler automatically
+
+### Impact on Our Proxy
+
+**✅ Our current proxy will work with NO code changes!**
+
+The proxy we already built implements standard MCP Streamable HTTP:
+- ✅ POST to `/mcp` with JSON-RPC body
+- ✅ Session management via `Mcp-Session-Id` header
+- ✅ SSE and JSON response handling
+- ✅ Retry logic with exponential backoff
+- ✅ Debug logging
+
+**Phase 4 implementation is NO LONGER NEEDED** - the `--mcp-hub-mode` flag and dual-mode architecture become obsolete.
+
+### Compatibility Matrix (After PR Merge)
+
+| Server Type | Our Proxy (Standard Mode) | Notes |
+|-------------|---------------------------|-------|
+| **MCP spec-compliant servers** | ✅ Works | Current functionality |
+| **mcp-hub v4.2.1 (current)** | ❌ 404 errors | Split SSE transport |
+| **mcp-hub (with PR #128)** | ✅ Works! | Standard Streamable HTTP |
+| **mcp-hub (legacy clients)** | ✅ Works! | Backward compatible SSE |
+
+### PR Status
+
+- **Author**: @bcdonadio
+- **PR**: [#128](https://github.com/ravitemer/mcp-hub/pull/128)
+- **Status**: Open (awaiting review/merge)
+- **Target**: main branch
+- **Motivation**: Support Codex (which doesn't support SSE)
+- **Backward Compatible**: Yes (legacy SSE endpoints preserved)
+
+### Testing Evidence from PR
+
+From src/server.js:346-392, the unified endpoint now:
+1. Handles POST → Streamable HTTP (our proxy's protocol)
+2. Handles GET with session ID → Streamable HTTP
+3. Handles GET with SSE headers → Legacy SSE (backward compat)
+4. Preserves POST /messages → Legacy SSE messages (backward compat)
+
+### Code Evidence
+
+**New Transport Creation** (src/mcp/server.js:569-576):
+```javascript
+const transport = new StreamableHTTPServerTransport({
+  // Generate cryptographically secure session IDs
+  sessionIdGenerator: () => randomUUID(),
+
+  // DNS rebinding protection - disabled for local dev
+  enableDnsRebindingProtection: false,
+});
+```
+
+**Session Management** (src/mcp/server.js:554-566):
+```javascript
+async handleStreamableHTTP(req, res) {
+  // Check for existing session via header (NOT query param!)
+  const sessionId = req.headers['mcp-session-id'];
+
+  if (sessionId) {
+    // Reuse existing transport
+    const clientInfo = this.clients.get(sessionId);
+    if (clientInfo) {
+      await clientInfo.transport.handleRequest(req, res, req.body);
+      return;
+    }
+  }
+
+  // Create new session...
+}
+```
+
+### Next Steps
+
+1. **Wait for PR merge** (track at https://github.com/ravitemer/mcp-hub/pull/128)
+2. **Update mcp-hub** when released: `npm install -g @ravitemer/mcp-hub@latest`
+3. **Test our proxy** with updated mcp-hub - should work immediately
+4. **Archive Phase 4 docs** - no longer needed (saves 4-6 hours development time)
+5. **Update README** with compatibility status after PR merge
+
+### Implications
+
+**Positive**:
+- ✅ No proxy changes needed
+- ✅ Standard protocol compliance
+- ✅ Simpler architecture (no dual-mode)
+- ✅ Better ecosystem compatibility
+- ✅ Saves 4-6 hours of development time
+
+**Considerations**:
+- ⏳ Waiting on PR merge timeline
+- 📋 May need to support both versions temporarily
+- 🔄 Users need to update mcp-hub after merge
+
+### Recommendation
+
+**Do not implement Phase 4** (mcp-hub compatibility mode). Instead:
+1. Monitor PR #128 for merge status
+2. Document mcp-hub version requirements in README
+3. Test with PR #128 branch if urgent (branch `pr-128` available)
+4. Archive Phase 4 implementation plan as historical reference
+
+This PR makes our proxy's design decision to follow the MCP spec exactly the right choice!
+
+---
+
+## Installing PR #128 for Testing (2025-10-10)
+
+### Tested Installation Method
+
+The PR branch can be installed globally for day-to-day use while waiting for the official merge. Standard `npm install -g` methods may fail due to npm caching issues, so use manual extraction:
+
+**Step 1: Clone and Build**
+```bash
+# Clone the fork with PR branch
+git clone -b feat/stream-http https://github.com/donadiosolutions/mcp-hub.git ~/git/mcp-hub-pr
+cd ~/git/mcp-hub-pr
+
+# Update package.json version to distinguish from official release
+cat package.json | jq '.version = "5.0.2-pr128"' > package.json.tmp
+mv package.json.tmp package.json
+
+# Install dependencies and build
+npm install
+npm run build
+```
+
+**Step 2: Create Tarball**
+```bash
+cd ~/git/mcp-hub-pr
+npm pack
+# Creates: mcp-hub-5.0.2-pr128.tgz
+```
+
+**Step 3: Manual Installation (Works Around npm Cache Issues)**
+```bash
+# Remove old version
+npm uninstall -g mcp-hub
+
+# Extract tarball to global node_modules
+tar -xzf ~/git/mcp-hub-pr/mcp-hub-5.0.2-pr128.tgz \
+  -C ~/.asdf/installs/nodejs/24.1.0/lib/node_modules/
+
+# Rename extracted directory
+mv ~/.asdf/installs/nodejs/24.1.0/lib/node_modules/package \
+   ~/.asdf/installs/nodejs/24.1.0/lib/node_modules/mcp-hub
+
+# Update shims (for asdf users)
+asdf reshim nodejs
+```
+
+**Step 4: Verify Installation**
+```bash
+mcp-hub --version
+# Should show: 5.0.2-pr128
+
+# Test with our proxy
+mcp-hub start --config ~/.mcp-hub/config.json
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | ./mcp-stdio-proxy http://localhost:37373/mcp
+```
+
+### Test Results with PR #128
+
+✅ **All tests passing:**
+- **Initialize**: Session established with `Mcp-Session-Id` header
+- **tools/list**: 69 tools returned successfully
+- **Large responses**: No buffer errors (after increasing buffer to 1MB)
+- **Session persistence**: Session ID correctly reused across requests
+- **Standard protocol**: POST /mcp endpoint works as expected
+
+### Why Manual Extraction?
+
+npm's global install has caching issues that cause it to pull from the npm registry instead of using local tarballs, even with `npm cache clean --force`. Manual extraction bypasses this issue.
+
+### For Non-asdf Users
+
+If you're not using asdf, replace `~/.asdf/installs/nodejs/24.1.0/lib/node_modules/` with your global node_modules path:
+- **nvm**: `~/.nvm/versions/node/v24.1.0/lib/node_modules/`
+- **system node**: `/usr/local/lib/node_modules/` or `/usr/lib/node_modules/`
+
+Check your path with:
+```bash
+npm root -g
+```
+
+### Uninstalling PR Version
+
+When the official release is available:
+```bash
+npm uninstall -g mcp-hub
+npm install -g @ravitemer/mcp-hub@latest
+```

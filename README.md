@@ -84,19 +84,41 @@ DEBUG=1 ./mcp-stdio-proxy http://localhost:37373/mcp
 - Single POST endpoint with SSE or JSON responses
 - Session management via `Mcp-Session-Id` header
 
-⚠️ **mcp-hub v4.2.1**
+### mcp-hub Compatibility
+
+⚠️ **mcp-hub v4.2.1 (Current Release)**
 - Currently **not supported** (uses non-standard transport)
 - mcp-hub uses custom two-endpoint SSE pattern (GET /mcp + POST /messages)
-- Support planned in Phase 4 via `--mcp-hub-mode` flag
 - See [docs/MCP-HUB-QUIRKS.md](docs/MCP-HUB-QUIRKS.md) for technical details
 
-### Future Compatibility
+🎉 **mcp-hub (Upcoming - After PR #128 Merge)**
+- **Will be fully supported** with NO proxy changes needed!
+- [PR #128](https://github.com/ravitemer/mcp-hub/pull/128) adds standard Streamable HTTP support
+- Backward compatible with legacy SSE transport
+- Upgrade mcp-hub when released: `npm install -g @ravitemer/mcp-hub@latest`
 
-Phase 4 will add mcp-hub support:
+#### Using the Proxy with mcp-hub PR #128 (Testing)
+
+If you want to test before the official release:
+
 ```bash
-# For mcp-hub v4.2.1+
-./mcp-stdio-proxy --mcp-hub-mode http://localhost:37373
+# Clone and checkout PR branch
+cd ~/git/mcp-hub
+git fetch origin pull/128/head:pr-128
+git checkout pr-128
+npm install
+npm start
+
+# Then use proxy as normal (no special flags needed!)
+./mcp-stdio-proxy http://localhost:37373/mcp
 ```
+
+#### Timeline
+
+- **Now**: Works with MCP spec-compliant servers
+- **Waiting**: PR #128 merge (adds mcp-hub compatibility)
+- **After merge**: Works with mcp-hub out of the box
+- **Phase 4 cancelled**: `--mcp-hub-mode` flag no longer needed (saves 4-6 hours development)
 
 ## Documentation
 

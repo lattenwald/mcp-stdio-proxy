@@ -83,12 +83,17 @@ func main() {
 	debug := *debugFlag || *verboseFlag || os.Getenv("DEBUG") == "1"
 
 	// Create proxy
+	stdinScanner := bufio.NewScanner(os.Stdin)
+	// Increase buffer size to handle large JSON-RPC messages (default is 64KB)
+	// 1MB should handle even very large tool lists and resource contents
+	stdinScanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
 	proxy := &Proxy{
 		url: url,
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		stdin:  bufio.NewScanner(os.Stdin),
+		stdin:  stdinScanner,
 		stdout: os.Stdout,
 		debug:  debug,
 	}
@@ -250,6 +255,8 @@ func (p *Proxy) handleJSONResponse(body io.Reader) error {
 // handleSSEResponse handles a Server-Sent Events stream
 func (p *Proxy) handleSSEResponse(body io.Reader) error {
 	scanner := bufio.NewScanner(body)
+	// Increase buffer size to handle large SSE messages (default is 64KB)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	var dataLines []string
 
 	for scanner.Scan() {
