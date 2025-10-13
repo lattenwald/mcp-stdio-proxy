@@ -1,8 +1,24 @@
 # Phase 4 Implementation Plan: mcp-hub Compatibility Mode
 
-**Objective**: Add `--mcp-hub` flag to support mcp-hub's split-endpoint SSE transport.
+> **⚠️ ARCHIVED - NOT NEEDED**
+>
+> This implementation plan is **no longer necessary** due to PR #128 adding standard Streamable HTTP support to mcp-hub.
+>
+> **Why Archived**: mcp-hub PR #128 implements the standard MCP protocol, eliminating the need for a compatibility mode.
+>
+> **See**: [docs/PR128-ANALYSIS.md](PR128-ANALYSIS.md) for details on why this is obsolete.
+>
+> **Time Saved**: 6-7 hours of development + ongoing maintenance
+>
+> ---
+>
+> _The content below is preserved for historical reference._
 
-**Estimated Effort**: 6-7 hours
+---
+
+**Objective**: ~~Add `--mcp-hub` flag to support mcp-hub's split-endpoint SSE transport.~~
+
+**Estimated Effort**: ~~6-7 hours~~ **CANCELLED**
 
 ## Prerequisites
 

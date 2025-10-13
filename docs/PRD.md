@@ -89,31 +89,48 @@ type Proxy struct {
     url       string
     sessionID string
     client    *http.Client
-    stdin     *bufio.Scanner
+    stdin     *bufio.Scanner  // 1MB buffer (increased from 64KB default)
     stdout    io.Writer
+    debug     bool
+}
+
+type JSONRPCMessage struct {
+    JSONRPC string          `json:"jsonrpc"`
+    ID      json.RawMessage `json:"id,omitempty"`
+    Method  string          `json:"method,omitempty"`
+    Params  json.RawMessage `json:"params,omitempty"`
+    Result  json.RawMessage `json:"result,omitempty"`
+    Error   *JSONRPCError   `json:"error,omitempty"`
 }
 ```
 
 ## Implementation Plan
 
-### Phase 1: Core Proxy (2-3 hours)
-- [ ] CLI argument parsing (URL)
-- [ ] stdin reader (newline-delimited)
-- [ ] HTTP POST client
-- [ ] Basic response handling
-- [ ] stdout writer
+### Phase 1: Core Proxy (COMPLETED)
+- [x] CLI argument parsing (URL)
+- [x] stdin reader (newline-delimited)
+- [x] HTTP POST client
+- [x] Basic response handling
+- [x] stdout writer
 
-### Phase 2: Protocol Compliance (1-2 hours)
-- [ ] Session ID extraction and storage
-- [ ] Mcp-Session-Id header injection
-- [ ] SSE parsing and streaming
-- [ ] Error conversion to JSON-RPC format
+### Phase 2: Protocol Compliance (COMPLETED)
+- [x] Session ID extraction and storage
+- [x] Mcp-Session-Id header injection
+- [x] SSE parsing and streaming
+- [x] Error conversion to JSON-RPC format
+- [x] Debug logging (--debug, -v, --verbose flags)
+- [x] Retry logic with exponential backoff
 
-### Phase 3: Testing (1 hour)
-- [ ] Test with mcp-hub
-- [ ] Test initialization sequence
-- [ ] Test multi-message sessions
-- [ ] Test error conditions
+### Phase 3: Testing (COMPLETED)
+- [x] Test with mcp-hub PR #128
+- [x] Test initialization sequence
+- [x] Test multi-message sessions
+- [x] Test error conditions
+- [x] Test large responses (tools/list with 69 tools)
+
+### Phase 4: Buffer Size Fix (COMPLETED)
+- [x] Increase scanner buffers from 64KB to 1MB
+- [x] Handle large tool lists without buffer overflow
 
 ## Success Criteria
 
@@ -125,17 +142,20 @@ type Proxy struct {
 
 ## Edge Cases
 
-1. **Connection loss**: Implement reconnection with session recovery
-2. **Large responses**: Stream SSE data without buffering entirely
-3. **Concurrent messages**: Handle request/response ordering (JSON-RPC ID matching)
-4. **Malformed input**: Skip invalid messages, log to stderr
-5. **Server errors**: Properly format HTTP 4xx/5xx as JSON-RPC errors
+1. **Connection loss**: ✅ Retry with exponential backoff (3 attempts: 100ms, 200ms, 400ms)
+2. **Large responses**: ✅ Stream SSE data without buffering entirely (1MB buffer handles 69-tool lists)
+3. **Concurrent messages**: ✅ Sequential processing (one message at a time via stdin)
+4. **Malformed input**: ✅ Skip invalid messages, log to stderr
+5. **Server errors**: ✅ Properly format HTTP 4xx/5xx as JSON-RPC errors
 
 ## Monitoring & Debugging
 
-- Environment variable `DEBUG=1` enables verbose logging to stderr
-- Log format: timestamp, message type, direction, session ID
-- No logging to stdout (reserved for JSON-RPC messages)
+✅ **Implemented**:
+- CLI flags: `--debug`, `-v`, `--verbose`
+- Environment variable: `DEBUG=1`
+- Log format: `[TAG] message` (e.g., `[INIT]`, `[HTTP]`, `[SSE]`, `[SESSION]`)
+- All logs to stderr only (stdout reserved for JSON-RPC messages)
+- Session ID tracking in debug output
 
 ## mcp-hub Compatibility
 
@@ -149,50 +169,28 @@ Analysis of mcp-hub v4.2.1 revealed it **does not implement standard MCP Streama
 
 **See**: [docs/MCP-HUB-QUIRKS.md](MCP-HUB-QUIRKS.md) for detailed analysis.
 
-### Phase 4: mcp-hub Mode Support (4-6 hours)
+### UPDATE: PR #128 Solves Compatibility Issue! 🎉
 
-Add `--mcp-hub-mode` flag to support mcp-hub's split-endpoint transport:
+**Discovery**: Pull request [#128](https://github.com/ravitemer/mcp-hub/pull/128) adds full MCP 2025-03-26 Streamable HTTP support to mcp-hub!
 
-**Architecture Changes**:
-```go
-type Proxy struct {
-    url        string
-    sessionID  string
-    client     *http.Client
-    stdin      *bufio.Scanner
-    stdout     io.Writer
-    debug      bool
-    mcpHubMode bool              // NEW: Enable mcp-hub compatibility
-    sseConn    *http.Response    // NEW: Long-lived SSE connection
-    sseReader  *bufio.Scanner    // NEW: SSE stream reader
-    pendingReqs map[string]chan *JSONRPCMessage  // NEW: Request/response correlation
-}
-```
+**Impact**:
+- ✅ Our proxy works with mcp-hub **with NO code changes**
+- ✅ POST /mcp endpoint with standard protocol
+- ✅ Mcp-Session-Id header management
+- ✅ Tested successfully with 69 tools
+- ⏳ Waiting on PR merge to production release
 
-**Implementation Tasks**:
-- [ ] Add `--mcp-hub-mode` CLI flag
-- [ ] Implement GET /mcp SSE connection establishment
-- [ ] Parse sessionId from SSE transport (may need custom parsing)
-- [ ] Background goroutine for SSE stream reading
-- [ ] Request/response correlation via JSON-RPC ID matching
-- [ ] POST to /messages?sessionId=xxx for each stdin message
-- [ ] Channel-based async response handling
-- [ ] Reconnection logic for SSE connection loss
-- [ ] Update error handling for mcp-hub mode
-- [ ] Add mcp-hub mode tests
+**See**: [docs/PR128-ANALYSIS.md](PR128-ANALYSIS.md) for complete analysis and [docs/MCP-HUB-QUIRKS.md](MCP-HUB-QUIRKS.md) for installation instructions.
 
-**Success Criteria**:
-1. ✓ Proxy connects to mcp-hub with `--mcp-hub-mode`
-2. ✓ Initialization succeeds and tools/list works
-3. ✓ Multi-message sessions work correctly
-4. ✓ Async responses properly correlated
-5. ✓ Standard mode unchanged (backward compatible)
+### ~~Phase 4: mcp-hub Mode Support~~ **CANCELLED**
 
-**Technical Challenges**:
-- Async response handling (responses don't match POST order)
-- SSE connection keepalive and reconnection
-- sessionId extraction (may require parsing SSE handshake)
-- Concurrent request handling with proper correlation
+~~Add `--mcp-hub-mode` flag to support mcp-hub's split-endpoint transport~~
+
+**Status**: **Not needed** - PR #128 makes mcp-hub spec-compliant, eliminating the need for a compatibility mode.
+
+**Time Saved**: 4-6 hours of development + ongoing maintenance
+
+**Recommendation**: Wait for PR #128 merge, then test with official release. The proxy already implements everything needed.
 
 ## Future Enhancements (Out of Scope)
 
