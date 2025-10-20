@@ -29,17 +29,30 @@ go build -o mcp-stdio-proxy
 ## Usage
 
 ```bash
-# Basic usage
+# Basic usage with explicit URL
 ./mcp-stdio-proxy http://localhost:37373/mcp
+
+# Auto-discover local mcp-hub port (recommended!)
+./mcp-stdio-proxy --mcp-hub
 
 # With debug logging
 ./mcp-stdio-proxy --debug http://localhost:37373/mcp
-./mcp-stdio-proxy -v http://localhost:37373/mcp
+./mcp-stdio-proxy --mcp-hub --debug
 
 # Get help
 ./mcp-stdio-proxy --help
 
 # Use with Claude Code in .claude.json
+{
+  "mcpServers": {
+    "hub": {
+      "command": "/path/to/mcp-stdio-proxy",
+      "args": ["--mcp-hub"]
+    }
+  }
+}
+
+# Or with explicit URL
 {
   "mcpServers": {
     "hub": {
@@ -54,7 +67,7 @@ go build -o mcp-stdio-proxy
   "mcpServers": {
     "hub": {
       "command": "/path/to/mcp-stdio-proxy",
-      "args": ["--debug", "http://localhost:37373/mcp"]
+      "args": ["--mcp-hub", "--debug"]
     }
   }
 }
@@ -62,12 +75,23 @@ go build -o mcp-stdio-proxy
 
 ### Options
 
+- `--mcp-hub` - Auto-discover local mcp-hub port (no URL needed!)
 - `--debug` / `-v` / `--verbose` - Enable debug logging to stderr
 - `--help` / `-h` - Show help message
+
+### Port Auto-Discovery
+
+The `--mcp-hub` flag automatically finds mcp-hub running on your local machine:
+
+1. **Process list search**: Scans for `mcp-hub` process and extracts `--port` argument
+2. **Network socket fallback**: Uses `ss` or `netstat` to find listening port
+
+This eliminates the need to manually track which port mcp-hub is running on, especially useful when mcp-hub dynamically selects ports.
 
 Debug logging can also be enabled via environment variable:
 ```bash
 DEBUG=1 ./mcp-stdio-proxy http://localhost:37373/mcp
+DEBUG=1 ./mcp-stdio-proxy --mcp-hub
 ```
 
 ## Requirements

@@ -26,7 +26,7 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 - [x] docs/PRD.md completed
 - [x] AGENTS.md created
 - [x] docs/PROGRESS.md created for tracking
-- [x] main.go implemented (~310 lines)
+- [x] main.go implemented (~480 lines)
 - [x] CLI argument parsing and validation
 - [x] Proxy struct and initialization
 - [x] Stdin message reader (newline-delimited JSON-RPC)
@@ -36,6 +36,9 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 - [x] HTTP error to JSON-RPC conversion
 - [x] Exponential backoff retry logic (3 attempts)
 - [x] Debug logging support (--debug, -v, --verbose flags + DEBUG=1)
+- [x] **mcp-hub port auto-discovery** (--mcp-hub flag)
+  - Process list scanning with --port extraction
+  - Network socket fallback (ss/netstat)
 - [x] Binary built successfully (8.4 MB)
 - [x] Updated README with usage examples and options
 - [x] Updated PROGRESS.md with technical decisions
@@ -63,10 +66,10 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 
 ### Scope: Minimal
 **Philosophy**: Do one thing well
-- No configuration files (URL as CLI arg)
+- No configuration files (URL as CLI arg or auto-discovered)
 - No multi-server aggregation (mcp-hub handles this)
 - No OAuth (downstream server's responsibility)
-- ~200-300 lines of code
+- ~480 lines of code (includes port auto-discovery)
 
 ### Protocol: MCP 2025-03-26 Streamable HTTP
 **Key Requirements**:
@@ -130,9 +133,9 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 - **docs/PRD.md**: Complete requirements and implementation plan (includes Phase 4)
 - **docs/PROGRESS.md**: Implementation progress tracking
 - **docs/MCP-HUB-QUIRKS.md**: mcp-hub protocol analysis and compatibility plan
-- **main.go**: Core proxy implementation (~320 lines)
+- **main.go**: Core proxy implementation (~480 lines, includes port auto-discovery)
 - **go.mod**: Go module definition
-- **mcp-stdio-proxy**: Compiled binary (8.4 MB)
+- **mcp-stdio-proxy**: Compiled binary (~8.5 MB)
 
 ## References
 
@@ -254,6 +257,10 @@ Tested proxy with mcp-hub v4.2.1 and discovered it **does not implement standard
 - `handleSSEResponse()`: Parse SSE streams
 - `writeSSEData()`: Validate and write SSE data to stdout
 - `sendErrorResponse()`: Convert errors to JSON-RPC format
+- `discoverMcpHubPort()`: Auto-discover mcp-hub port
+- `findPortInProcessList()`: Extract port from process args
+- `findPortInNetstat()`: Find port from network sockets
+- `tryNetworkCommand()`: Helper for ss/netstat parsing
 
 ### Key Features Implemented
 1. **Protocol Compliance**: Full MCP 2025-03-26 Streamable HTTP support
@@ -263,16 +270,20 @@ Tested proxy with mcp-hub v4.2.1 and discovered it **does not implement standard
 5. **Debug Mode**: Multiple options (--debug, -v, --verbose, DEBUG=1)
 6. **Error Handling**: Malformed messages skipped, HTTP errors converted to JSON-RPC
 7. **CLI Interface**: Standard flag package, comprehensive help message
-8. **Zero Dependencies**: Pure Go stdlib implementation
+8. **Port Auto-Discovery**: --mcp-hub flag finds running mcp-hub instance
+9. **Zero Dependencies**: Pure Go stdlib implementation
 
 ### CLI Usage
 ```bash
-# Basic usage
+# Auto-discover mcp-hub port (recommended)
+./mcp-stdio-proxy --mcp-hub
+
+# Explicit URL
 ./mcp-stdio-proxy http://localhost:37373/mcp
 
 # With debug logging
+./mcp-stdio-proxy --mcp-hub --debug
 ./mcp-stdio-proxy --debug http://localhost:37373/mcp
-./mcp-stdio-proxy -v http://localhost:37373/mcp
 
 # Get help
 ./mcp-stdio-proxy --help
@@ -280,4 +291,6 @@ Tested proxy with mcp-hub v4.2.1 and discovered it **does not implement standard
 
 ### Testing Ready
 Binary location: `./mcp-stdio-proxy`
-Test command: `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./mcp-stdio-proxy http://localhost:37373/mcp`
+Test commands:
+- Auto-discovery: `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./mcp-stdio-proxy --mcp-hub`
+- Explicit URL: `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./mcp-stdio-proxy http://localhost:37373/mcp`

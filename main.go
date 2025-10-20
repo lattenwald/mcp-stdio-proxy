@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -45,19 +47,21 @@ func main() {
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
 	verboseFlag := flag.Bool("v", false, "Enable verbose logging (alias for --debug)")
 	flag.BoolVar(verboseFlag, "verbose", false, "Enable verbose logging (alias for --debug)")
+	mcpHubFlag := flag.Bool("mcp-hub", false, "Auto-discover local mcp-hub port")
 
 	// Custom usage message
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] <streamable-http-url>\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] [<streamable-http-url>]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "A minimal stdio to Streamable HTTP proxy for Model Context Protocol (MCP).\n\n")
 		fmt.Fprintf(os.Stderr, "Arguments:\n")
-		fmt.Fprintf(os.Stderr, "  <streamable-http-url>  Target MCP server URL (required)\n\n")
+		fmt.Fprintf(os.Stderr, "  <streamable-http-url>  Target MCP server URL (required unless --mcp-hub is used)\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s http://localhost:37373/mcp\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --debug http://localhost:37373/mcp\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s -v http://localhost:37373/mcp\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --mcp-hub\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --mcp-hub --debug\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\nEnvironment Variables:\n")
 		fmt.Fprintf(os.Stderr, "  DEBUG=1  Alternative way to enable debug logging\n")
 	}
@@ -65,22 +69,38 @@ func main() {
 	// Parse flags
 	flag.Parse()
 
-	// Get URL from remaining arguments
-	if flag.NArg() != 1 {
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	url := flag.Arg(0)
-
-	// Validate URL
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		fmt.Fprintf(os.Stderr, "Error: URL must start with http:// or https://\n")
-		os.Exit(1)
-	}
-
 	// Check for debug mode (flag or environment variable)
 	debug := *debugFlag || *verboseFlag || os.Getenv("DEBUG") == "1"
+
+	var url string
+
+	// Handle --mcp-hub mode
+	if *mcpHubFlag {
+		port, err := discoverMcpHubPort(debug)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed to discover mcp-hub port: %v\n", err)
+			os.Exit(1)
+		}
+		url = fmt.Sprintf("http://localhost:%s/mcp", port)
+		if debug {
+			log.SetOutput(os.Stderr)
+			log.Printf("[DISCOVERY] Found mcp-hub on port %s", port)
+		}
+	} else {
+		// Get URL from remaining arguments
+		if flag.NArg() != 1 {
+			flag.Usage()
+			os.Exit(1)
+		}
+
+		url = flag.Arg(0)
+
+		// Validate URL
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			fmt.Fprintf(os.Stderr, "Error: URL must start with http:// or https://\n")
+			os.Exit(1)
+		}
+	}
 
 	// Create proxy
 	stdinScanner := bufio.NewScanner(os.Stdin)
@@ -341,4 +361,123 @@ func (p *Proxy) sendErrorResponse(id json.RawMessage, code int, message string) 
 	if p.debug {
 		log.Printf("[STDOUT] Sent error: %s", data)
 	}
+}
+
+// discoverMcpHubPort attempts to find the port mcp-hub is running on
+func discoverMcpHubPort(debug bool) (string, error) {
+	if debug {
+		log.SetOutput(os.Stderr)
+		log.Printf("[DISCOVERY] Attempting to discover mcp-hub port...")
+	}
+
+	// Strategy 1: Try to find mcp-hub in process list with --port argument
+	port, err := findPortInProcessList(debug)
+	if err == nil {
+		return port, nil
+	}
+	if debug {
+		log.Printf("[DISCOVERY] Process list search failed: %v", err)
+	}
+
+	// Strategy 2: Try to find listening port using ss/netstat
+	port, err = findPortInNetstat(debug)
+	if err == nil {
+		return port, nil
+	}
+	if debug {
+		log.Printf("[DISCOVERY] Network socket search failed: %v", err)
+	}
+
+	return "", fmt.Errorf("could not discover mcp-hub port")
+}
+
+// findPortInProcessList searches for mcp-hub process and extracts --port argument
+func findPortInProcessList(debug bool) (string, error) {
+	// Use ps to find mcp-hub process
+	cmd := exec.Command("ps", "aux")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to run ps: %w", err)
+	}
+
+	// Look for lines containing "mcp-hub" and "--port"
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	portRegex := regexp.MustCompile(`--port[= ](\d+)`)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, "mcp-hub") {
+			continue
+		}
+		// Skip grep processes
+		if strings.Contains(line, "grep") {
+			continue
+		}
+
+		// Extract port from --port argument
+		matches := portRegex.FindStringSubmatch(line)
+		if len(matches) >= 2 {
+			port := matches[1]
+			if debug {
+				log.Printf("[DISCOVERY] Found mcp-hub in process list: %s", line)
+				log.Printf("[DISCOVERY] Extracted port: %s", port)
+			}
+			return port, nil
+		}
+	}
+
+	return "", fmt.Errorf("mcp-hub process not found in process list")
+}
+
+// findPortInNetstat searches for mcp-hub listening port using ss or netstat
+func findPortInNetstat(debug bool) (string, error) {
+	// Try ss first (modern Linux)
+	port, err := tryNetworkCommand("ss", []string{"-tlnp"}, debug)
+	if err == nil {
+		return port, nil
+	}
+
+	// Fall back to netstat
+	port, err = tryNetworkCommand("netstat", []string{"-tlnp"}, debug)
+	if err == nil {
+		return port, nil
+	}
+
+	return "", fmt.Errorf("could not find mcp-hub listening port")
+}
+
+// tryNetworkCommand tries to run a network command (ss or netstat) and find mcp-hub
+func tryNetworkCommand(command string, args []string, debug bool) (string, error) {
+	cmd := exec.Command(command, args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to run %s: %w", command, err)
+	}
+
+	// Look for lines containing "node" or "mcp-hub" that are LISTEN
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	portRegex := regexp.MustCompile(`:(\d+)\s`)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, "LISTEN") {
+			continue
+		}
+		if !strings.Contains(line, "node") && !strings.Contains(line, "mcp-hub") {
+			continue
+		}
+
+		// Extract port from address (format: 0.0.0.0:PORT or :::PORT)
+		matches := portRegex.FindStringSubmatch(line)
+		if len(matches) >= 2 {
+			port := matches[1]
+			if debug {
+				log.Printf("[DISCOVERY] Found potential mcp-hub port in %s: %s", command, line)
+				log.Printf("[DISCOVERY] Extracted port: %s", port)
+			}
+			return port, nil
+		}
+	}
+
+	return "", fmt.Errorf("no matching process found in %s output", command)
 }
