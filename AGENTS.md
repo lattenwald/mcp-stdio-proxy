@@ -26,7 +26,7 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 - [x] docs/PRD.md completed
 - [x] AGENTS.md created
 - [x] docs/PROGRESS.md created for tracking
-- [x] main.go implemented (~480 lines)
+- [x] main.go implemented (~666 lines)
 - [x] CLI argument parsing and validation
 - [x] Proxy struct and initialization
 - [x] Stdin message reader (newline-delimited JSON-RPC)
@@ -39,6 +39,8 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 - [x] **mcp-hub port auto-discovery** (--mcp-hub flag)
   - Process list scanning with --port extraction
   - Network socket fallback (ss/netstat)
+  - **Smart instance selection** - prioritizes project-local configs over global configs
+  - Proximity scoring based on current working directory
 - [x] Binary built successfully (8.4 MB)
 - [x] Updated README with usage examples and options
 - [x] Updated PROGRESS.md with technical decisions
@@ -69,7 +71,7 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 - No configuration files (URL as CLI arg or auto-discovered)
 - No multi-server aggregation (mcp-hub handles this)
 - No OAuth (downstream server's responsibility)
-- ~480 lines of code (includes port auto-discovery)
+- ~666 lines of code (includes smart auto-discovery with project-local prioritization)
 
 ### Protocol: MCP 2025-03-26 Streamable HTTP
 **Key Requirements**:
@@ -250,6 +252,7 @@ Tested proxy with mcp-hub v4.2.1 and discovered it **does not implement standard
 **main.go** contains:
 - `Proxy` struct: Core proxy state (URL, session ID, HTTP client, I/O)
 - `JSONRPCMessage` struct: JSON-RPC 2.0 message representation
+- `McpHubInstance` struct: Discovered mcp-hub process details
 - `Run()`: Main event loop reading from stdin
 - `forwardMessage()`: Retry logic wrapper
 - `sendHTTPRequest()`: HTTP POST with session management
@@ -257,8 +260,11 @@ Tested proxy with mcp-hub v4.2.1 and discovered it **does not implement standard
 - `handleSSEResponse()`: Parse SSE streams
 - `writeSSEData()`: Validate and write SSE data to stdout
 - `sendErrorResponse()`: Convert errors to JSON-RPC format
-- `discoverMcpHubPort()`: Auto-discover mcp-hub port
-- `findPortInProcessList()`: Extract port from process args
+- `discoverMcpHubPort()`: Auto-discover mcp-hub port with smart selection
+- `findAllMcpHubInstances()`: Scan all mcp-hub processes with details
+- `selectBestMcpHubInstance()`: Smart instance selection with scoring
+- `scoreInstance()`: Calculate priority score based on config proximity
+- `commonPathLength()`: Calculate path similarity metric
 - `findPortInNetstat()`: Find port from network sockets
 - `tryNetworkCommand()`: Helper for ss/netstat parsing
 
@@ -270,7 +276,11 @@ Tested proxy with mcp-hub v4.2.1 and discovered it **does not implement standard
 5. **Debug Mode**: Multiple options (--debug, -v, --verbose, DEBUG=1)
 6. **Error Handling**: Malformed messages skipped, HTTP errors converted to JSON-RPC
 7. **CLI Interface**: Standard flag package, comprehensive help message
-8. **Port Auto-Discovery**: --mcp-hub flag finds running mcp-hub instance
+8. **Smart Auto-Discovery**: --mcp-hub flag with intelligent instance selection
+   - Finds all running mcp-hub instances
+   - Prioritizes project-local configs over global configs
+   - Scores by proximity to current working directory
+   - Shows detailed scoring in debug mode
 9. **Zero Dependencies**: Pure Go stdlib implementation
 
 ### CLI Usage

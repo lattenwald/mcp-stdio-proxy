@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -363,24 +365,56 @@ func (p *Proxy) sendErrorResponse(id json.RawMessage, code int, message string) 
 	}
 }
 
+// McpHubInstance represents a discovered mcp-hub process
+type McpHubInstance struct {
+	Port        string
+	ConfigFiles []string
+	CommandLine string
+	PID         string
+}
+
 // discoverMcpHubPort attempts to find the port mcp-hub is running on
 func discoverMcpHubPort(debug bool) (string, error) {
 	if debug {
 		log.SetOutput(os.Stderr)
+		// Print current working directory
+		cwd, err := os.Getwd()
+		if err != nil {
+			log.Printf("[DISCOVERY] Warning: Could not get current working directory: %v", err)
+		} else {
+			log.Printf("[DISCOVERY] Current working directory: %s", cwd)
+		}
 		log.Printf("[DISCOVERY] Attempting to discover mcp-hub port...")
 	}
 
 	// Strategy 1: Try to find mcp-hub in process list with --port argument
-	port, err := findPortInProcessList(debug)
-	if err == nil {
-		return port, nil
+	instances, err := findAllMcpHubInstances(debug)
+	if err == nil && len(instances) > 0 {
+		if debug {
+			log.Printf("[DISCOVERY] Found %d mcp-hub instance(s):", len(instances))
+			for i, inst := range instances {
+				log.Printf("[DISCOVERY] Instance %d:", i+1)
+				log.Printf("[DISCOVERY]   PID: %s", inst.PID)
+				log.Printf("[DISCOVERY]   Port: %s", inst.Port)
+				log.Printf("[DISCOVERY]   Config files: %v", inst.ConfigFiles)
+				log.Printf("[DISCOVERY]   Command: %s", inst.CommandLine)
+			}
+		}
+
+		// Select best instance based on project-local configs
+		cwd, err := os.Getwd()
+		if err != nil {
+			cwd = "" // Fall back to first instance if we can't get CWD
+		}
+		selected := selectBestMcpHubInstance(instances, cwd, debug)
+		return selected.Port, nil
 	}
 	if debug {
 		log.Printf("[DISCOVERY] Process list search failed: %v", err)
 	}
 
 	// Strategy 2: Try to find listening port using ss/netstat
-	port, err = findPortInNetstat(debug)
+	port, err := findPortInNetstat(debug)
 	if err == nil {
 		return port, nil
 	}
@@ -391,18 +425,19 @@ func discoverMcpHubPort(debug bool) (string, error) {
 	return "", fmt.Errorf("could not discover mcp-hub port")
 }
 
-// findPortInProcessList searches for mcp-hub process and extracts --port argument
-func findPortInProcessList(debug bool) (string, error) {
-	// Use ps to find mcp-hub process
-	cmd := exec.Command("ps", "aux")
+// findAllMcpHubInstances searches for all mcp-hub processes and returns their details
+func findAllMcpHubInstances(debug bool) ([]McpHubInstance, error) {
+	// Use ps to find mcp-hub processes with full command line
+	cmd := exec.Command("ps", "auxww")
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to run ps: %w", err)
+		return nil, fmt.Errorf("failed to run ps: %w", err)
 	}
 
-	// Look for lines containing "mcp-hub" and "--port"
+	var instances []McpHubInstance
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	portRegex := regexp.MustCompile(`--port[= ](\d+)`)
+	configRegex := regexp.MustCompile(`--config\s+([^\s]+)`)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -414,19 +449,42 @@ func findPortInProcessList(debug bool) (string, error) {
 			continue
 		}
 
-		// Extract port from --port argument
-		matches := portRegex.FindStringSubmatch(line)
-		if len(matches) >= 2 {
-			port := matches[1]
-			if debug {
-				log.Printf("[DISCOVERY] Found mcp-hub in process list: %s", line)
-				log.Printf("[DISCOVERY] Extracted port: %s", port)
-			}
-			return port, nil
+		// Extract PID (second field in ps aux output)
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
 		}
+		pid := fields[1]
+
+		// Extract port from --port argument
+		portMatches := portRegex.FindStringSubmatch(line)
+		if len(portMatches) < 2 {
+			continue
+		}
+		port := portMatches[1]
+
+		// Extract all --config arguments
+		var configFiles []string
+		configMatches := configRegex.FindAllStringSubmatch(line, -1)
+		for _, match := range configMatches {
+			if len(match) >= 2 {
+				configFiles = append(configFiles, match[1])
+			}
+		}
+
+		instances = append(instances, McpHubInstance{
+			Port:        port,
+			ConfigFiles: configFiles,
+			CommandLine: line,
+			PID:         pid,
+		})
 	}
 
-	return "", fmt.Errorf("mcp-hub process not found in process list")
+	if len(instances) == 0 {
+		return nil, fmt.Errorf("no mcp-hub processes found in process list")
+	}
+
+	return instances, nil
 }
 
 // findPortInNetstat searches for mcp-hub listening port using ss or netstat
@@ -480,4 +538,129 @@ func tryNetworkCommand(command string, args []string, debug bool) (string, error
 	}
 
 	return "", fmt.Errorf("no matching process found in %s output", command)
+}
+
+// selectBestMcpHubInstance chooses the best mcp-hub instance based on project-local configs
+func selectBestMcpHubInstance(instances []McpHubInstance, cwd string, debug bool) *McpHubInstance {
+	if len(instances) == 0 {
+		return nil
+	}
+
+	// If only one instance, return it
+	if len(instances) == 1 {
+		if debug {
+			log.Printf("[DISCOVERY] Only one instance found, selecting port %s", instances[0].Port)
+		}
+		return &instances[0]
+	}
+
+	// Score each instance
+	type scoredInstance struct {
+		instance *McpHubInstance
+		score    int
+		reason   string
+	}
+
+	var scored []scoredInstance
+
+	for i := range instances {
+		inst := &instances[i]
+		score, reason := scoreInstance(inst, cwd, debug)
+		scored = append(scored, scoredInstance{
+			instance: inst,
+			score:    score,
+			reason:   reason,
+		})
+	}
+
+	// Sort by score (highest first)
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].score > scored[j].score
+	})
+
+	if debug {
+		log.Printf("[DISCOVERY] Instance scoring:")
+		for i, s := range scored {
+			log.Printf("[DISCOVERY]   Instance %d (port %s): score=%d - %s",
+				i+1, s.instance.Port, s.score, s.reason)
+		}
+		log.Printf("[DISCOVERY] Selected instance with port %s", scored[0].instance.Port)
+	}
+
+	return scored[0].instance
+}
+
+// scoreInstance calculates a priority score for an mcp-hub instance
+func scoreInstance(inst *McpHubInstance, cwd string, debug bool) (int, string) {
+	if cwd == "" {
+		return 0, "no CWD available, using default priority"
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = ""
+	}
+
+	var globalConfigPath string
+	if homeDir != "" {
+		globalConfigPath = filepath.Join(homeDir, ".mcp-hub")
+	}
+
+	maxScore := 0
+	bestReason := "global config only"
+
+	for _, configPath := range inst.ConfigFiles {
+		// Skip global configs
+		if globalConfigPath != "" && strings.HasPrefix(configPath, globalConfigPath) {
+			continue
+		}
+
+		// Get the directory of the config file
+		configDir := filepath.Dir(configPath)
+
+		// Calculate how closely related the config is to CWD
+		commonLength := commonPathLength(cwd, configDir)
+
+		// Award points: more common path components = higher score
+		score := commonLength * 100
+
+		// Bonus points if config is in a parent directory (typical project structure)
+		if strings.HasPrefix(cwd, configDir) {
+			score += 50
+		}
+
+		// Bonus points if config is in a child directory
+		if strings.HasPrefix(configDir, cwd) {
+			score += 25
+		}
+
+		if score > maxScore {
+			maxScore = score
+			bestReason = fmt.Sprintf("project-local config at %s (common path length: %d)", configPath, commonLength)
+		}
+	}
+
+	return maxScore, bestReason
+}
+
+// commonPathLength calculates the number of common path components between two paths
+func commonPathLength(path1, path2 string) int {
+	// Clean and split paths
+	p1 := filepath.Clean(path1)
+	p2 := filepath.Clean(path2)
+
+	parts1 := strings.Split(p1, string(filepath.Separator))
+	parts2 := strings.Split(p2, string(filepath.Separator))
+
+	// Count common prefix parts
+	common := 0
+	for i := 0; i < len(parts1) && i < len(parts2); i++ {
+		if parts1[i] == parts2[i] {
+			common++
+		} else {
+			break
+		}
+	}
+
+	return common
 }

@@ -17,6 +17,7 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 - **Minimal**: Single binary, no configuration files required
 - **Protocol compliant**: Implements MCP 2025-03-26 Streamable HTTP specification
 - **Session management**: Handles Mcp-Session-Id headers automatically
+- **Smart auto-discovery**: Automatically finds and prioritizes project-local mcp-hub instances
 - **Fast**: Go-based, low latency, minimal memory footprint
 
 ## Installation
@@ -84,9 +85,38 @@ go build -o mcp-stdio-proxy
 The `--mcp-hub` flag automatically finds mcp-hub running on your local machine:
 
 1. **Process list search**: Scans for `mcp-hub` process and extracts `--port` argument
-2. **Network socket fallback**: Uses `ss` or `netstat` to find listening port
+2. **Smart prioritization**: When multiple mcp-hub instances are found, prioritizes project-local configurations
+3. **Network socket fallback**: Uses `ss` or `netstat` to find listening port
 
 This eliminates the need to manually track which port mcp-hub is running on, especially useful when mcp-hub dynamically selects ports.
+
+#### Smart Instance Selection
+
+When multiple mcp-hub instances are running, the proxy intelligently selects the most relevant one:
+
+**Prioritization Logic:**
+- ✅ **Prefers project-local configs** over global `~/.mcp-hub/` configs
+- ✅ **Scores by proximity** to current working directory
+- ✅ **Parent directory bonus** - favors configs in parent directories (typical project structure)
+- ✅ **Shows scoring details** with `--debug` flag
+
+**Example Scenario:**
+```bash
+# Two mcp-hub instances running:
+# 1. Port 37373 - global config: ~/.mcp-hub/config.json
+# 2. Port 40808 - project config: ~/myproject/.mcphub/servers.json
+
+# When running from ~/myproject/src/
+./mcp-stdio-proxy --mcp-hub --debug
+
+# Output (debug mode):
+# [DISCOVERY] Instance scoring:
+#   Instance 1 (port 40808): score=500 - project-local config
+#   Instance 2 (port 37373): score=0 - global config only
+# [DISCOVERY] Selected instance with port 40808
+```
+
+This allows seamless switching between projects - the proxy automatically connects to the project-specific mcp-hub instance based on your current directory.
 
 Debug logging can also be enabled via environment variable:
 ```bash
