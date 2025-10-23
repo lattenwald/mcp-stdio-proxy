@@ -236,3 +236,29 @@ scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 - ✅ Production ready
 
 **Time Saved**: 4-6 hours by not implementing Phase 4 (mcp-hub mode) - PR #128 made it unnecessary!
+
+---
+
+### 2025-10-23 - Smart Auto-Discovery Enhancement
+
+**Enhancement**: Added intelligent instance selection when multiple mcp-hub instances are running
+
+**Implementation**:
+- ✅ Discover all running mcp-hub instances (not just first match)
+- ✅ Extract config files from process arguments
+- ✅ Score instances based on project-local config proximity
+- ✅ Prioritize configs in/near current working directory
+- ✅ Enhanced debug logging with scoring details
+
+**Technical Details**:
+- New `McpHubInstance` struct for process metadata
+- Proximity-based scoring: 100 points per common path component
+- Parent directory bonus: +50 points (typical project structure)
+- Child directory bonus: +25 points
+- Global `~/.mcp-hub/` configs excluded from scoring
+
+**Code Statistics**:
+- Total lines: ~666 lines (up from ~310)
+- Added functions: `findAllMcpHubInstances()`, `selectBestMcpHubInstance()`, `scoreInstance()`, `commonPathLength()`
+
+**User Benefit**: Seamless switching between projects - proxy automatically connects to project-specific mcp-hub instance based on current directory.
