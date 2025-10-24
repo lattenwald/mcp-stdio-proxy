@@ -446,6 +446,11 @@ func discoverMcpHubInstance(debug bool) (*McpHubInstance, error) {
 		if len(selected.ConfigFiles) > 0 {
 			// Use the last (most specific) config file
 			selected.ConfigPath = selected.ConfigFiles[len(selected.ConfigFiles)-1]
+
+			// Replace $HOME with ~/ for shorter ps output
+			if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
+				selected.ConfigPath = strings.Replace(selected.ConfigPath, homeDir, "~", 1)
+			}
 		}
 
 		return selected, nil
