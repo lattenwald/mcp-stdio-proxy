@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -50,6 +51,7 @@ func main() {
 	verboseFlag := flag.Bool("v", false, "Enable verbose logging (alias for --debug)")
 	flag.BoolVar(verboseFlag, "verbose", false, "Enable verbose logging (alias for --debug)")
 	mcpHubFlag := flag.Bool("mcp-hub", false, "Auto-discover local mcp-hub port")
+	mcpHubConfigFlag := flag.String("mcp-hub-config", "", "Display mcp-hub config path (internal use)")
 
 	// Custom usage message
 	flag.Usage = func() {
@@ -77,24 +79,46 @@ func main() {
 	var url string
 
 	// Handle --mcp-hub mode
-	if *mcpHubFlag {
-		port, err := discoverMcpHubPort(debug)
+	if *mcpHubFlag && flag.NArg() == 0 {
+		// First execution: discover and re-exec
+		instance, err := discoverMcpHubInstance(debug)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Failed to discover mcp-hub port: %v\n", err)
 			os.Exit(1)
 		}
-		url = fmt.Sprintf("http://localhost:%s/mcp", port)
+
+		url = fmt.Sprintf("http://localhost:%s/mcp", instance.Port)
+
 		if debug {
 			log.SetOutput(os.Stderr)
-			log.Printf("[DISCOVERY] Found mcp-hub on port %s", port)
-		}
-	} else {
-		// Get URL from remaining arguments
-		if flag.NArg() != 1 {
-			flag.Usage()
-			os.Exit(1)
+			log.Printf("[REEXEC] Re-executing with --mcp-hub-config %s %s", instance.ConfigPath, url)
 		}
 
+		// Build new args for re-execution
+		newArgs := []string{os.Args[0]}
+
+		// Preserve flags
+		if *debugFlag {
+			newArgs = append(newArgs, "--debug")
+		} else if *verboseFlag {
+			newArgs = append(newArgs, "--verbose")
+		}
+
+		// Add display config
+		newArgs = append(newArgs, "--mcp-hub-config", instance.ConfigPath)
+
+		// Add discovered URL
+		newArgs = append(newArgs, url)
+
+		// Re-exec
+		err = syscall.Exec(os.Args[0], newArgs, os.Environ())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed to re-execute: %v\n", err)
+			os.Exit(1)
+		}
+		// Never reaches here
+	} else if flag.NArg() == 1 {
+		// URL provided (either explicit or after re-exec)
 		url = flag.Arg(0)
 
 		// Validate URL
@@ -102,6 +126,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: URL must start with http:// or https://\n")
 			os.Exit(1)
 		}
+
+		if debug && *mcpHubConfigFlag != "" {
+			log.SetOutput(os.Stderr)
+			log.Printf("[INIT] Using mcp-hub config: %s", *mcpHubConfigFlag)
+		}
+	} else {
+		// Invalid usage
+		flag.Usage()
+		os.Exit(1)
 	}
 
 	// Create proxy
@@ -371,10 +404,11 @@ type McpHubInstance struct {
 	ConfigFiles []string
 	CommandLine string
 	PID         string
+	ConfigPath  string // Primary config path for display
 }
 
-// discoverMcpHubPort attempts to find the port mcp-hub is running on
-func discoverMcpHubPort(debug bool) (string, error) {
+// discoverMcpHubInstance attempts to find the mcp-hub instance with full details
+func discoverMcpHubInstance(debug bool) (*McpHubInstance, error) {
 	if debug {
 		log.SetOutput(os.Stderr)
 		// Print current working directory
@@ -407,22 +441,41 @@ func discoverMcpHubPort(debug bool) (string, error) {
 			cwd = "" // Fall back to first instance if we can't get CWD
 		}
 		selected := selectBestMcpHubInstance(instances, cwd, debug)
-		return selected.Port, nil
+
+		// Set primary config path for display
+		if len(selected.ConfigFiles) > 0 {
+			// Use the last (most specific) config file
+			selected.ConfigPath = selected.ConfigFiles[len(selected.ConfigFiles)-1]
+		}
+
+		return selected, nil
 	}
 	if debug {
 		log.Printf("[DISCOVERY] Process list search failed: %v", err)
 	}
 
-	// Strategy 2: Try to find listening port using ss/netstat
+	// Strategy 2: Try to find listening port using ss/netstat (fallback, no config info)
 	port, err := findPortInNetstat(debug)
 	if err == nil {
-		return port, nil
+		return &McpHubInstance{
+			Port:       port,
+			ConfigPath: "unknown",
+		}, nil
 	}
 	if debug {
 		log.Printf("[DISCOVERY] Network socket search failed: %v", err)
 	}
 
-	return "", fmt.Errorf("could not discover mcp-hub port")
+	return nil, fmt.Errorf("could not discover mcp-hub port")
+}
+
+// discoverMcpHubPort attempts to find the port mcp-hub is running on (legacy function)
+func discoverMcpHubPort(debug bool) (string, error) {
+	instance, err := discoverMcpHubInstance(debug)
+	if err != nil {
+		return "", err
+	}
+	return instance.Port, nil
 }
 
 // findAllMcpHubInstances searches for all mcp-hub processes and returns their details

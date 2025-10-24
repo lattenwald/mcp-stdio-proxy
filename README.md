@@ -118,6 +118,31 @@ When multiple mcp-hub instances are running, the proxy intelligently selects the
 
 This allows seamless switching between projects - the proxy automatically connects to the project-specific mcp-hub instance based on your current directory.
 
+#### Process Visibility
+
+When using `--mcp-hub` mode, the proxy re-executes itself with enriched arguments to make connection details visible in `ps` output:
+
+```bash
+# User runs:
+./mcp-stdio-proxy --mcp-hub
+
+# After auto-discovery, appears in ps as:
+./mcp-stdio-proxy --mcp-hub-config /path/to/.mcphub/servers.json http://localhost:40808/mcp
+```
+
+**Benefits:**
+- ✅ **Easily identify** which mcp-hub instance each proxy is connected to
+- ✅ **See config path** to understand which project's config is being used
+- ✅ **Debug multi-instance setups** with `ps aux | grep mcp-stdio-proxy`
+
+**Example `ps` output:**
+```bash
+$ ps aux | grep mcp-stdio-proxy
+user  12345  ./mcp-stdio-proxy --mcp-hub-config ~/.mcp-hub/config.json http://localhost:37373/mcp
+user  12346  ./mcp-stdio-proxy --mcp-hub-config ~/project/.mcphub/servers.json http://localhost:40808/mcp
+user  12347  ./mcp-stdio-proxy http://localhost:9999/mcp
+```
+
 Debug logging can also be enabled via environment variable:
 ```bash
 DEBUG=1 ./mcp-stdio-proxy http://localhost:37373/mcp
