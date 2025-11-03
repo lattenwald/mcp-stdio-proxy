@@ -22,10 +22,29 @@ Claude Code (stdio) → mcp-stdio-proxy → mcp-hub (Streamable HTTP) → Backen
 
 ## Installation
 
+### Quick Install (Recommended)
+
+```bash
+cd ~/projects/go/mcp-stdio-proxy
+make          # Build and install to ~/bin (or /usr/local/bin if root)
+```
+
+### Manual Build
+
 ```bash
 cd ~/projects/go/mcp-stdio-proxy
 go build -o mcp-stdio-proxy
 ```
+
+### Makefile Targets
+
+- `make` or `make all` - Build and install (default)
+- `make build` - Build binary only
+- `make install` - Install to `~/bin` (user) or `/usr/local/bin` (root)
+- `make lint` - Run linters (fmt, vet, golangci-lint)
+- `make test` - Run tests
+- `make clean` - Remove build artifacts
+- `make help` - Show available targets
 
 ## Usage
 
