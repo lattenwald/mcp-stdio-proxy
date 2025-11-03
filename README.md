@@ -36,6 +36,9 @@ go build -o mcp-stdio-proxy
 # Auto-discover local mcp-hub port (recommended!)
 ./mcp-stdio-proxy --mcp-hub
 
+# With custom timeout (default: 120 seconds)
+./mcp-stdio-proxy --timeout 300 http://localhost:37373/mcp
+
 # With debug logging
 ./mcp-stdio-proxy --debug http://localhost:37373/mcp
 ./mcp-stdio-proxy --mcp-hub --debug
@@ -77,6 +80,7 @@ go build -o mcp-stdio-proxy
 ### Options
 
 - `--mcp-hub` - Auto-discover local mcp-hub port (no URL needed!)
+- `--timeout` - HTTP request timeout in seconds (default: 120)
 - `--debug` / `-v` / `--verbose` - Enable debug logging to stderr
 - `--help` / `-h` - Show help message
 

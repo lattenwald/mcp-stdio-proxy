@@ -50,6 +50,7 @@ func main() {
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
 	verboseFlag := flag.Bool("v", false, "Enable verbose logging (alias for --debug)")
 	flag.BoolVar(verboseFlag, "verbose", false, "Enable verbose logging (alias for --debug)")
+	timeoutFlag := flag.Int("timeout", 120, "HTTP request timeout in seconds")
 	mcpHubFlag := flag.Bool("mcp-hub", false, "Auto-discover local mcp-hub port")
 	mcpHubConfigFlag := flag.String("mcp-hub-config", "", "Display mcp-hub config path (internal use)")
 
@@ -64,6 +65,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s http://localhost:37373/mcp\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --debug http://localhost:37373/mcp\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --timeout 300 http://localhost:37373/mcp\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --mcp-hub\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --mcp-hub --debug\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\nEnvironment Variables:\n")
@@ -146,7 +148,7 @@ func main() {
 	proxy := &Proxy{
 		url: url,
 		client: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: time.Duration(*timeoutFlag) * time.Second,
 		},
 		stdin:  stdinScanner,
 		stdout: os.Stdout,
