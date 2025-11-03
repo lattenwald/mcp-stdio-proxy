@@ -476,15 +476,6 @@ func discoverMcpHubInstance(debug bool) (*McpHubInstance, error) {
 	return nil, fmt.Errorf("could not discover mcp-hub port")
 }
 
-// discoverMcpHubPort attempts to find the port mcp-hub is running on (legacy function)
-func discoverMcpHubPort(debug bool) (string, error) {
-	instance, err := discoverMcpHubInstance(debug)
-	if err != nil {
-		return "", err
-	}
-	return instance.Port, nil
-}
-
 // findAllMcpHubInstances searches for all mcp-hub processes and returns their details
 func findAllMcpHubInstances(debug bool) ([]McpHubInstance, error) {
 	// Use ps to find mcp-hub processes with full command line
