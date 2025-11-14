@@ -32,3 +32,9 @@ Thumbs.db
 *.tmp
 *.log
 *.bak
+
+# Navigator context markers
+.context-markers/
+
+# Navigator temporary files
+.agent/.nav-temp/

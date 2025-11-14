@@ -304,3 +304,46 @@ Binary location: `./mcp-stdio-proxy`
 Test commands:
 - Auto-discovery: `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./mcp-stdio-proxy --mcp-hub`
 - Explicit URL: `echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ./mcp-stdio-proxy http://localhost:37373/mcp`
+
+---
+
+## Navigator Workflow Integration
+
+This project uses **Navigator** for development workflow management. Navigator is now initialized.
+
+### Navigator Directory Structure
+
+- **`.agent/`**: Navigator documentation and configuration
+  - `DEVELOPMENT-README.md`: Navigator guide and quick reference
+  - `.nav-config.json`: Project configuration
+  - `tasks/`: Implementation plans and task tracking
+  - `system/`: Architecture documentation
+  - `sops/`: Standard Operating Procedures
+  - `grafana/`: Optional metrics dashboard
+
+### Key Navigator Commands
+
+**Session Management**:
+- `nav start` or "Start my Navigator session" - Load project context
+- `nav stats` - View efficiency metrics
+- `nav marker` - Create progress checkpoint
+- `nav compact` - Clear context while preserving knowledge
+
+**Task Management**:
+- `nav task` - Create/update/archive implementation tasks
+- Tasks stored in `.agent/tasks/`
+- Automatically tracks progress and links to code changes
+
+**Knowledge Capture**:
+- `nav sop` - Create Standard Operating Procedure
+- Document solved problems for future reference
+- SOPs stored in `.agent/sops/`
+
+**Best Practices**:
+1. Start each session with `nav start` to load context
+2. Create tasks before implementing features
+3. Document novel solutions as SOPs
+4. Use markers before risky changes
+5. Compact context when approaching token limits
+
+See `.agent/DEVELOPMENT-README.md` for complete Navigator documentation.
