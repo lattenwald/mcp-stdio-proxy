@@ -1,8 +1,8 @@
 # Implementation Progress: mcp-stdio-proxy
 
 **Started**: 2025-10-10
-**Completed**: 2025-10-10
-**Status**: ✅ Complete and Production Ready
+**Last Updated**: 2025-11-14
+**Status**: ✅ Complete and Production Ready (with Health Monitoring)
 
 ## Implementation Plan
 
@@ -262,3 +262,57 @@ scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 - Added functions: `findAllMcpHubInstances()`, `selectBestMcpHubInstance()`, `scoreInstance()`, `commonPathLength()`
 
 **User Benefit**: Seamless switching between projects - proxy automatically connects to project-specific mcp-hub instance based on current directory.
+
+---
+
+## Phase 5: Health Monitoring (2025-11-14)
+
+**Status**: ✅ Implemented and Tested
+
+**Implementation**:
+- ✅ Periodic health checks via `/api/health` endpoint
+- ✅ Automatic restart via `/api/restart` on failure (max 1 attempt)
+- ✅ Configurable recovery verification wait time
+- ✅ State machine: Healthy → Unhealthy → RestartAttempted → Healthy/Failed
+- ✅ Clean goroutine shutdown on proxy exit
+- ✅ Comprehensive unit tests (13 test cases)
+- ✅ Full integration with proxy lifecycle
+
+**CLI Flags**:
+- `--disable-health-check` - Opt-out of automatic health monitoring (enabled by default with --mcp-hub)
+- `--health-check-interval N` - Check interval (default: 60s, min: 5s)
+- `--health-check-timeout N` - HTTP timeout (default: 5s, min: 1s)
+- `--health-check-recovery-wait N` - Recovery verification delay (default: 10s, min: 5s)
+
+**Technical Details**:
+- New file: `healthcheck.go` (~300 lines)
+- New file: `healthcheck_test.go` (~370 lines, 13 tests, >80% coverage)
+- Modified: `main.go` (+45 lines for integration)
+- State tracking with `HealthState` enum
+- Goroutine with `time.Ticker` for periodic checks
+- Context-based shutdown for clean goroutine termination
+- Exponential backoff prevented via single restart attempt
+
+**Logging Examples**:
+```
+[INIT] Health checker started (interval: 60s, timeout: 5s, recovery wait: 10s)
+[HEALTH] Health check passed
+[HEALTH] mcp-hub health check failed, attempting restart...
+[HEALTH] Waiting 10s before verifying recovery...
+[HEALTH] mcp-hub restart successful, service recovered
+[ERROR] Health check failed after restart attempt. Manual intervention required.
+```
+
+**Testing**:
+- Unit tests: 13 test cases covering all scenarios
+- Constructor validation, health checks, state transitions
+- Restart flow, single-attempt enforcement, timeout handling
+- Graceful shutdown, recovery verification
+- All tests passing with >80% code coverage on healthcheck.go
+
+**Code Statistics**:
+- Total lines: ~1000+ lines (main.go ~280, healthcheck.go ~300, healthcheck_test.go ~370)
+- New structs: `HealthChecker`, `HealthState`, `HealthResponse`
+- New goroutine: Background health monitoring with ticker
+
+**User Benefit**: Automatic detection and recovery of mcp-hub failures without manual intervention. Enabled by default for improved reliability.

@@ -145,6 +145,13 @@ Ensure `.agent/tasks/` exists. Re-run initialization if needed.
 ### "Context too large"
 Use `nav-compact` to clear context while preserving knowledge.
 
+## Active Tasks
+
+- **TASK-01**: MCP-Hub Health Monitoring with Auto-Restart (Status: 🚧 In Progress)
+  - File: `.agent/tasks/TASK-01-mcp-hub-health-monitoring.md`
+  - Started: 2025-11-14
+  - Summary: Monitor mcp-hub health endpoint periodically, auto-restart on failure (1 attempt max)
+
 ## Next Steps
 
 1. **Start your first session**: "Start my Navigator session"

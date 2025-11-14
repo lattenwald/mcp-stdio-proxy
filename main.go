@@ -20,12 +20,13 @@ import (
 
 // Proxy handles the stdio to Streamable HTTP bridge
 type Proxy struct {
-	url       string
-	sessionID string
-	client    *http.Client
-	stdin     *bufio.Scanner
-	stdout    io.Writer
-	debug     bool
+	url           string
+	sessionID     string
+	client        *http.Client
+	stdin         *bufio.Scanner
+	stdout        io.Writer
+	debug         bool
+	healthChecker *HealthChecker // optional health checker
 }
 
 // JSONRPCMessage represents a JSON-RPC 2.0 message
@@ -45,6 +46,14 @@ type JSONRPCError struct {
 	Data    json.RawMessage `json:"data,omitempty"`
 }
 
+// extractBaseURL removes /mcp suffix for health endpoints
+func extractBaseURL(url string) string {
+	if strings.HasSuffix(url, "/mcp") {
+		return strings.TrimSuffix(url, "/mcp")
+	}
+	return url
+}
+
 func main() {
 	// Define flags
 	debugFlag := flag.Bool("debug", false, "Enable debug logging")
@@ -54,6 +63,12 @@ func main() {
 	mcpHubFlag := flag.Bool("mcp-hub", false, "Auto-discover local mcp-hub port")
 	mcpHubConfigFlag := flag.String("mcp-hub-config", "", "Display mcp-hub config path (internal use)")
 
+	// Health check flags (auto-enabled with --mcp-hub)
+	disableHealthCheck := flag.Bool("disable-health-check", false, "Disable automatic health monitoring for mcp-hub")
+	healthCheckInterval := flag.Int("health-check-interval", 60, "Health check interval in seconds (default: 60, min: 5)")
+	healthCheckTimeout := flag.Int("health-check-timeout", 5, "HTTP timeout for health checks in seconds (default: 5, min: 1)")
+	healthCheckRecoveryWait := flag.Int("health-check-recovery-wait", 10, "Wait time before verifying recovery after restart in seconds (default: 10, min: 5)")
+
 	// Custom usage message
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] [<streamable-http-url>]\n\n", os.Args[0])
@@ -62,12 +77,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  <streamable-http-url>  Target MCP server URL (required unless --mcp-hub is used)\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nHealth Check Options (auto-enabled with --mcp-hub):\n")
+		fmt.Fprintf(os.Stderr, "  --disable-health-check           Disable automatic health monitoring\n")
+		fmt.Fprintf(os.Stderr, "  --health-check-interval N        Check interval in seconds (default: 60)\n")
+		fmt.Fprintf(os.Stderr, "  --health-check-timeout N         Health check timeout in seconds (default: 5)\n")
+		fmt.Fprintf(os.Stderr, "  --health-check-recovery-wait N   Wait before verifying recovery in seconds (default: 10)\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s http://localhost:37373/mcp\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --debug http://localhost:37373/mcp\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --timeout 300 http://localhost:37373/mcp\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --mcp-hub\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s --mcp-hub --debug\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --mcp-hub --health-check-interval 30\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s --mcp-hub --disable-health-check\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\nEnvironment Variables:\n")
 		fmt.Fprintf(os.Stderr, "  DEBUG=1  Alternative way to enable debug logging\n")
 	}
@@ -77,6 +99,11 @@ func main() {
 
 	// Check for debug mode (flag or environment variable)
 	debug := *debugFlag || *verboseFlag || os.Getenv("DEBUG") == "1"
+
+	if *disableHealthCheck && !*mcpHubFlag && debug {
+		log.SetOutput(os.Stderr)
+		log.Printf("[WARN] --disable-health-check has no effect without --mcp-hub")
+	}
 
 	var url string
 
@@ -160,6 +187,32 @@ func main() {
 		log.Printf("[INIT] Starting mcp-stdio-proxy, target: %s", url)
 	}
 
+	// Health checking enabled by default with --mcp-hub
+	if *mcpHubFlag && !*disableHealthCheck {
+		baseURL := extractBaseURL(url)
+		healthChecker, err := NewHealthChecker(
+			proxy,
+			time.Duration(*healthCheckInterval)*time.Second,
+			time.Duration(*healthCheckTimeout)*time.Second,
+			time.Duration(*healthCheckRecoveryWait)*time.Second,
+			baseURL,
+			debug,
+		)
+		if err != nil {
+			log.Fatalf("Failed to create health checker: %v", err)
+		}
+
+		proxy.healthChecker = healthChecker
+		healthChecker.Start()
+
+		if debug {
+			log.Printf("[INIT] Health checker started (interval: %ds, timeout: %ds, recovery wait: %ds)",
+				*healthCheckInterval, *healthCheckTimeout, *healthCheckRecoveryWait)
+		}
+	} else if *mcpHubFlag && *disableHealthCheck && debug {
+		log.Printf("[INIT] Health checking disabled by --disable-health-check")
+	}
+
 	// Run the proxy
 	if err := proxy.Run(); err != nil {
 		log.Fatalf("Proxy error: %v", err)
@@ -168,6 +221,10 @@ func main() {
 
 // Run starts the proxy main loop
 func (p *Proxy) Run() error {
+	if p.healthChecker != nil {
+		defer p.healthChecker.Stop()
+	}
+
 	// Read messages from stdin
 	for p.stdin.Scan() {
 		line := p.stdin.Text()

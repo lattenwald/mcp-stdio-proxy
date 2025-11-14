@@ -98,10 +98,17 @@ go build -o mcp-stdio-proxy
 
 ### Options
 
+**General:**
 - `--mcp-hub` - Auto-discover local mcp-hub port (no URL needed!)
 - `--timeout` - HTTP request timeout in seconds (default: 120)
 - `--debug` / `-v` / `--verbose` - Enable debug logging to stderr
 - `--help` / `-h` - Show help message
+
+**Health Monitoring** (auto-enabled with `--mcp-hub`):
+- `--disable-health-check` - Disable automatic health monitoring
+- `--health-check-interval N` - Check interval in seconds (default: 60)
+- `--health-check-timeout N` - HTTP timeout for checks (default: 5)
+- `--health-check-recovery-wait N` - Wait before verifying recovery (default: 10)
 
 ### Port Auto-Discovery
 
@@ -170,6 +177,57 @@ Debug logging can also be enabled via environment variable:
 ```bash
 DEBUG=1 ./mcp-stdio-proxy http://localhost:37373/mcp
 DEBUG=1 ./mcp-stdio-proxy --mcp-hub
+```
+
+### Health Monitoring
+
+When using `--mcp-hub`, health monitoring is **enabled by default** to ensure mcp-hub reliability.
+
+**Default behavior:**
+```bash
+./mcp-stdio-proxy --mcp-hub
+# Automatically checks mcp-hub health every 60 seconds
+```
+
+**Custom configuration:**
+```bash
+./mcp-stdio-proxy --mcp-hub \
+  --health-check-interval 30 \
+  --health-check-timeout 10 \
+  --health-check-recovery-wait 15
+```
+
+**Disable if needed:**
+```bash
+./mcp-stdio-proxy --mcp-hub --disable-health-check
+```
+
+**How it works:**
+- Checks `/api/health` endpoint periodically (default: 60s)
+- On failure, triggers `/api/restart` (one attempt only)
+- Waits configured time (default: 10s) before verifying recovery
+- If recovery fails, logs error and stops health monitoring
+- Proxy continues running even if health checks fail
+
+**Configuration options:**
+- `--disable-health-check` - Disable automatic health monitoring
+- `--health-check-interval N` - Check interval in seconds (default: 60, min: 5)
+- `--health-check-timeout N` - HTTP timeout in seconds (default: 5, min: 1)
+- `--health-check-recovery-wait N` - Recovery verification wait in seconds (default: 10, min: 5)
+
+**Debug logging:**
+```bash
+./mcp-stdio-proxy --mcp-hub --debug
+# Shows health check activity, state transitions, and restart attempts
+```
+
+**Example debug output:**
+```
+[INIT] Health checker started (interval: 60s, timeout: 5s, recovery wait: 10s)
+[HEALTH] Health check passed
+[HEALTH] mcp-hub health check failed, attempting restart...
+[HEALTH] Waiting 10s before verifying recovery...
+[HEALTH] mcp-hub restart successful, service recovered
 ```
 
 ## Requirements
